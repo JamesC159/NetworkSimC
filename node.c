@@ -22,6 +22,8 @@ for the trasnport layer
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <sys/time.h>
+#include <errno.h>
 
 /********* Linked List *********/
 typedef struct Node {
@@ -50,25 +52,26 @@ void datalink_receive_from_network(char*, int, char);
 void datalink_receive_from_channel(node**);
 void network_receive_from_transport(char*, int, int);
 void network_receive_from_datalink(char*, int, int);
-void network_route();
+void network_route(node**);
 void transport_send_string(char**, int, int, int, char **);
 void transport_receive_from_network(char*, int, int);
 void transport_output_all_received();
 void write_channel();
-
-/* NOTE - NOT dealing with memory management completely right now and also not closing file descriptors in list of nodes */
-
+void increment_seq_num(char**);
+void close_file(int);
 
 int main (int argc, char **argv) {
-	int id, dur, dest, stime, i, ncount;
+	int id, dur, dest, stime, i, ncount, ts = 0;
 	char *msg, *seq_num;
+	struct timeval tv;
 	node *head = NULL, *tail = NULL;
 
 	if (argc < 5) {
 		fprintf(stderr, "Error: invalid number of command line arguments.\n");
 		exit(1);
 	}
-
+	
+	//Setup initial sequence number
 	seq_num = (char*)malloc(2*sizeof(char));
 	seq_num[0] = '0';
 	seq_num[1] = '0';
@@ -91,13 +94,23 @@ int main (int argc, char **argv) {
 		msg = argv[4];
 		stime = atoi(argv[5]);
 	}	
-
 	dur = atoi(argv[2]);
+	
+	//Grab initial starting time of program before sending messages
+	gettimeofday(&tv, NULL);
+	ts = tv.tv_sec;
 	
 	//Process will run for dur seconds
 	for (i = 0; i < dur; i++) {
 		//datalink_receive_from_channel(&head);
 		if(i > stime) {
+			//Check to see if 5 seconds have elapsed in order to determine if we need
+			//to send routing messages to compute new paths
+			gettimeofday(&tv, NULL);
+			if (tv.tv_sec - ts >= 5) {
+				printf("5 seconds have elapsed since last sent message\nSending 10 routing messages to each neighbor\n");
+				network_route(&head);
+			}
 			transport_send_string(&msg, id, dest, strlen(msg), &seq_num);
 		}
 		sleep(1);
@@ -120,6 +133,8 @@ void datalink_receive_from_channel(node **head) {
 	node *temp = *head;
 	int bytes_read, i;
 	char buf[1000];
+	
+	//Check the channel of each node
 	while(temp != NULL) {
 		while((bytes_read = read(temp->ichannel, buf, 25)) == 0 && i < 2) {
 			sleep(1);
@@ -133,21 +148,50 @@ void datalink_receive_from_channel(node **head) {
 
 /********* Network Layer Functions *********/
 void network_receive_from_transport(char *msg, int len, int dest) {
-	printf("NEWORK PACKET: %s\n", msg);	
+	char *d_msg = (char*)malloc(1+sizeof(msg));
+	char *r_msg = (char*)malloc(12*sizeof(char));
+	int i = 0, j = 0;
+
+	//Check to see if the segment received from TCP is a data/XOR message
+	if(msg[0] == 'D') {
+		char *temp = (char*)malloc(1+sizeof(msg));
+		for (j, i = 5; i < len; j++, i++)
+			temp[j] = msg[i];
+		sprintf(d_msg, "D%d%s", dest, temp);
+		printf("Network Data Message Being Sent To DataLink Layer: %s\n", d_msg);
+		free(temp);
+	}
+	else if (msg[0] == 'X') {
+		printf("network layer received an XOR message\n");
+	}
+	else {
+		fprintf(stderr, "Error: network layer received invalid message\n");
+		exit(1);
+	}
+	
+	free(d_msg);
 }
 
 void network_receive_from_datalink(char *msg, int len, int neighbor_id) {
 	
 }
 
-void network_route() {
-	
+void network_route(node **head) {
+	printf("Inside network_route()\n");
+	node *temp = *head;
+	int i = 0;
+	while(temp != NULL) {
+		while(i < 10)
+			printf("Sending routing message %d to neighbor node %d\n", ++i, temp->id);
+		temp = temp->next;
+		i = 0;
+	}
 }
 
 /********* Transport Layer Functions *********/
 void transport_send_string(char **msg, int source, int dest, int len, char **seq_num) {
 	const int data_size = 6;
-	int msg_size = strlen(*msg);
+	int msg_size = strlen(*msg), p_len = 0;
 	int i = 0, j = 0, sn = 0;
 	char *data_msg = (char*)malloc(10*sizeof(char));
 	
@@ -166,16 +210,14 @@ void transport_send_string(char **msg, int source, int dest, int len, char **seq
 					msg_size--;
 					printf("j: %d  msg_size: %d\n", j, msg_size);
 				}
-				
 				packet[i] = NULL;
 				sprintf(data_msg, "D%d%d%s%s", source, dest, *seq_num, packet);
+				p_len = strlen(data_msg);
 				printf("Data being sent to network layer: %s\n", data_msg);
-				network_receive_from_transport(data_msg, data_size, dest);
+				network_receive_from_transport(data_msg, p_len, dest);
 				
 				//Increase the sequence number for next packet and start over.
-				sn = atoi(*seq_num);
-				sn++;
-				sprintf(*seq_num, "%02d", sn);
+				increment_seq_num(seq_num);
 				free(packet);
 			}
 			//Send the last bit of the segment
@@ -187,14 +229,16 @@ void transport_send_string(char **msg, int source, int dest, int len, char **seq
 						temp[i++] = (*msg)[j++];
 				sprintf(data_msg, "D%d%d%s%s", source, dest, *seq_num, temp);
 				printf("Last bit of data being sent: %s\n", data_msg);
-				network_receive_from_transport(data_msg, strlen(data_msg), dest);
+				p_len = strlen(data_msg);
+				network_receive_from_transport(data_msg, p_len, dest);
 				free(temp);
 			}
 		}
 		else {
 			sprintf(data_msg, "D%d%d%s%s", source, dest, *seq_num, *msg);
 			printf("Message size %d is less than or equal to %d\n Data message being sent to network layer:  %s\n", msg_size, data_size, data_msg);
-			network_receive_from_transport(data_msg, len, dest);
+			p_len = strlen(data_msg);
+			network_receive_from_transport(data_msg, p_len, dest);
 		}
 	}
 	else {
@@ -202,10 +246,7 @@ void transport_send_string(char **msg, int source, int dest, int len, char **seq
 	}
 	
 	//Always incrememnt the sequence number one last time for next transmission
-	sn = atoi(*seq_num);
-	sn++;
-	sprintf(*seq_num, "%02d", sn);
-	printf("%seq_num: s\n", *seq_num);
+	increment_seq_num(seq_num);
 	free(data_msg);
 }
 void transport_receive_from_network(char *msg, int len, int source) {
@@ -248,6 +289,8 @@ void clear_list(node **head) {
 	node *next;
 	while(temp != NULL) {
 		next = temp->next;
+		close_file(temp->ochannel);
+		close_file(temp->ichannel);
 		free(temp);
 		temp = next;
 	}
@@ -283,4 +326,20 @@ void open_files(int id, node **head) {
 
 		temp = temp->next;
 	}
+}
+
+void close_file(int fd) {
+	if (close(fd) == -1) {
+		exit(1);
+	}
+}
+
+void increment_seq_num(char **sn) {
+	int temp_sn;
+	temp_sn = atoi(*sn);
+	if (temp_sn == 99)
+		temp_sn = 0;
+	else
+		temp_sn++; 
+	sprintf(*sn, "%02d", temp_sn);
 }
