@@ -64,6 +64,11 @@ int main (int argc, char **argv) {
 	
 	//Process will run for dur seconds
 	for (i = 0; i < dur; i++) {
+		datalink_receive_from_channel();
+		
+		if(i > stime) {
+			transport_send_string();
+		}
 		
 		sleep(1);
 	}
@@ -81,6 +86,7 @@ void datalink_receive_from_network(char *msg, int len, char next_hop) {
 	
 
 void datalink_receive_from_channel() {
+	//Read each input file from all neighbors
 	
 }
 
