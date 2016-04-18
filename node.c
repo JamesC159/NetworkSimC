@@ -59,7 +59,7 @@ void network_demultiplex(char*, in, int, char);
 void transport_send_string(char**, int, int, int, char **);
 void transport_receive_from_network(char*, int, int);
 void transport_output_all_received();
-char* build_packet(char**, int*, int)
+char* build_packet(char**, int*, int);
 void write_channel();
 void increment_seq_num(char**);
 void close_file(int);
