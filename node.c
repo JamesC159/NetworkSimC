@@ -82,6 +82,10 @@ int main (int argc, char **argv) {
 		exit(1);
 	}
 	
+	id = (int)strtol(argv[1], NULL, 10);
+	dest = (int)strtol(argv[3], NULL, 10);
+	dur = (int)strtol(argv[2], NULL, 10);
+	
 	//Initialize the routing table and path vector
 	r_table = (RTB*)malloc(sizeof(RTB));
 	init_pvector();
@@ -90,10 +94,6 @@ int main (int argc, char **argv) {
 	seq_num = (char*)malloc(2*sizeof(char));
 	seq_num[0] = '0';
 	seq_num[1] = '0';
-	
-	id = (int)strtol(argv[1], NULL, 10);
-	dest = (int)strtol(argv[3], NULL, 10);
-	dur = (int)strtol(argv[2], NULL, 10);
 		
 	//Build Linked List of known neighbors
 	if (id == dest)
@@ -248,11 +248,11 @@ void network_route(int dest) {
 		//appear in the routing messages by code design
 		temp_pv[0] = 'F';
 		
-		for(i = 0; i < 12; i++) {
-			for(j = 1; j < 12; j++)
+		for(i = 0; i < 10; i++) {
+			for(j = 1; j < 11; j++)
 				temp_pv[j] = (r_table->pvector)[i][j-1];
 			
-			temp_pv[j-1] = 'E';
+			temp_pv[j] = 'E';
 			write(neighbor->ochannel, temp_pv, (int)strlen(temp_pv));
 		}
 		
@@ -334,10 +334,11 @@ void transport_send_string(char **msg, int source, int dest, int len, char **seq
 			if (msg_size >= 0 && msg_size <= data_size){
 				//Copy rest of message over to end_packet
 				char *end_packet = (char*)malloc(data_size*sizeof(char));
-				i = 0;
 				
+				i = 0;
 				while((*msg)[j] != NULL)
 						end_packet[i++] = (*msg)[j++];
+				end_packet[i] = NULL;
 					
 				//Send message to network layer
 				sprintf(data_msg, "D%d%d%s%s", source, dest, *seq_num, end_packet);
