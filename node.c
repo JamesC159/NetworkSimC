@@ -546,3 +546,15 @@ void init_pvector() {
 			else
 				(r_table->pvector)[i][j] = 'X';
 }
+
+void init_pvector() {
+	int i, j;
+	for(i = 0; i < 10; i++)
+		for(j = 0; j < 10; j++)
+			if(j == 0)
+				(r_table->pvector)[i][j] = '0' + id;
+			else if (j == 9)
+				(r_table->pvector)[i][j] = '0' + i;
+			else
+				(r_table->pvector)[i][j] = 'X';
+}
